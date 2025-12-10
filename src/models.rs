@@ -18,7 +18,13 @@ pub struct LoginRequest {
 
 #[derive(Debug, Serialize)]
 pub struct LoginResponse {
-    pub token: String,
+    pub access_token: String,
+    pub refresh_token: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RefreshRequest {
+    pub refresh_token: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -16,6 +16,7 @@ mod auth;
 mod middleware;
 mod health;
 mod rate_limit;
+mod builders;  // TYPE-STATE PATTERN builders
 
 #[tokio::main]
 async fn main() {
@@ -68,6 +69,8 @@ async fn main() {
         .route("/users", get(handlers::list_users))
         .route("/login", post(handlers::login))
         .route("/register", post(handlers::register))
+        .route("/refresh", post(handlers::refresh))
+        .route("/logout", post(handlers::logout))
         .with_state(shared_state);
 
     // 4. Server
