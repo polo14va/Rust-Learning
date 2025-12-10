@@ -77,4 +77,24 @@ Rust usa `Tower` (un trait de "Servicio") para modelar todo el stack de red.
 ### Opción D: FFI (Foreign Function Interface)
 Dado que sabes C, esto es potente.
 *   **Reto**: Escribir una función pequeña en C (ej: cálculo matemático pesado), compilarla como librería estática, y llamarla desde Rust usando `unsafe`.
-*   **Conceptos**: `libc`, bloques `unsafe`, punteros raw.
+
+### Opción E: Estado Compartido (Fearless Concurrency)
+En otros lenguajes (C++, Java), compartir memoria entre hilos es fuente de "Race Conditions". Rust lo impide al compilar.
+*   **Reto**: Crear una **Caché en Memoria** para el Dashboard usando `Arc<RwLock<HashMap<...>>>`.
+*   **Problema que soluciona**: Data Races y corrupción de memoria multihilo.
+
+### Opción F: Patrón Type-State (Make Invalid States Unrepresentable)
+En OOP normal, construyes un objeto y luego rezas para que esté bien configurado validándolo en runtime.
+*   **Reto**: Crear un "Builder" para un email donde sea *imposible de compilar* si falta el destinatario o el asunto.
+*   **Problema que soluciona**: Errores de validación en tiempo de ejecución.
+
+## Fase 6: Master Class (Tu Selección)
+Has elegido profundizar en estos 4 pilares para completar tu perfil Senior en Rust:
+
+1.  **Middleware y Autenticación ("Tower")**: Implementar seguridad real (JWT + BBDD) interceptando peticiones.
+2.  **Testing Profesional**: Integration Tests con `sqlx::test` (TestContainers).
+3.  **Macros (Metaprogramación)**: Escribir código que genera código (`derive` macros).
+4.  **Patrón "Type-State"**: Diseño de APIs a prueba de balas en tiempo de compilación.
+
+---
+**Siguiente Paso**: Implementar Auth (Punto 1).

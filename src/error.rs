@@ -9,7 +9,7 @@ use serde_json::json;
 #[derive(Debug)]
 pub enum AppError {
     DatabaseError(sqlx::Error),
-    // Aquí puedes añadir más tipos: NotFound, ValidationError, etc.
+    AuthError(String),
 }
 
 // Permitimos usar `?` para convertir automáticamente sqlx::Error en AppError
@@ -27,7 +27,10 @@ impl IntoResponse for AppError {
                 // En un entorno real, loguearíamos el error detallado internamente
                 // y mostraríamos un mensaje genérico al usuario.
                 println!("Database Error: {}", err);
-                (StatusCode::INTERNAL_SERVER_ERROR, "Error interno de base de datos")
+                (StatusCode::INTERNAL_SERVER_ERROR, "Error interno de base de datos".to_string())
+            },
+            AppError::AuthError(msg) => {
+                (StatusCode::UNAUTHORIZED, msg)
             }
         };
 
