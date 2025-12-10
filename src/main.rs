@@ -35,7 +35,8 @@ async fn main() {
     // 2. Router (Wiring)
     let app = Router::new()
         .route("/", get(root))
-        .route("/users", get(handlers::list_users)) // Usamos el handler del módulo
+        .route("/users", get(handlers::list_users))
+        .route("/dashboard", get(handlers::get_dashboard)) // Nuevo endpoint concurrente
         .with_state(pool);
 
     // 3. Server

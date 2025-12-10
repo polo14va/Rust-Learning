@@ -57,3 +57,24 @@ Rust tiene un ecosistema muy rico.
 2.  Reinicia la terminal.
 3.  Entra en la carpeta: `cd /Users/pedro/Documents/Aproyectos/RUST`
 4.  Ejecuta: `cargo run`
+
+## Fase 5: Conceptos Avanzados (Para Expertos)
+Como ya tienes la API básica, aquí están los retos para subir de nivel:
+
+### Opción A: Middleware y Tower (Arquitectura)
+Rust usa `Tower` (un trait de "Servicio") para modelar todo el stack de red.
+*   **Reto**: Implementar Autenticación JWT como un Middleware.
+*   **Conceptos**: `tower::Service`, `axum::middleware`, manejo de estados en la request.
+
+### Opción B: Concurrencia Avanzada (Async Channels)
+*   **Reto**: Crear un "Worker" en background que envíe emails simulados sin bloquear la API.
+*   **Conceptos**: `tokio::spawn`, canales `mpsc` (Multi-Producer, Single-Consumer), `Arc<Mutex<T>>`.
+
+### Opción C: Macros y Metaprogramación
+*   **Reto**: Crear una macro `#[derive(Loggable)]` que auto-implemente un log cuando se crea o modifica una estructura.
+*   **Conceptos**: Procedural Macros, `syn`, `quote`.
+
+### Opción D: FFI (Foreign Function Interface)
+Dado que sabes C, esto es potente.
+*   **Reto**: Escribir una función pequeña en C (ej: cálculo matemático pesado), compilarla como librería estática, y llamarla desde Rust usando `unsafe`.
+*   **Conceptos**: `libc`, bloques `unsafe`, punteros raw.
