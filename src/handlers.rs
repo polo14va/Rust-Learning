@@ -3,9 +3,13 @@ use axum::{
     Json,
 };
 use tokio::time::Instant;
+use axum_extra::extract::CookieJar;
+use axum_extra::extract::cookie::{Cookie, SameSite};
+use chrono::{Duration, Utc};
+use time::Duration as CookieDuration;
 use crate::{
-    models::{User, DashboardData, AppState, LoginRequest, LoginResponse, RefreshRequest},
-    db, error::AppError, cache, auth, rate_limit,
+    models::{User, DashboardData, AppState, LoginRequest, LoginResponse, RefreshRequest, RefreshTokenRecord},
+    db, error::AppError, cache, auth, rate_limit, email,
     builders::UserRegistration,  // TYPE-STATE BUILDER
 };
 
@@ -50,8 +54,9 @@ pub async fn get_dashboard(State(state): State<AppState>) -> Result<Json<Dashboa
 
 pub async fn login(
     State(state): State<AppState>,
+    jar: CookieJar,
     Json(payload): Json<LoginRequest>,
-) -> Result<Json<LoginResponse>, AppError> {
+) -> Result<(CookieJar, Json<LoginResponse>), AppError> {
     // Rate limiting por username
     let rate_key = format!("rate_limit:login:{}", payload.username);
     if !rate_limit::check_rate_limit(&state.redis_client, &rate_key).await? {
@@ -65,13 +70,38 @@ pub async fn login(
         // 2. Verificar password
         if auth::verify_password(&payload.password, &user.password_hash)? {
             // 3. Generar tokens
-            let access_token = auth::create_jwt(&user.username)?;
+            let scope = "openid profile email offline_access";
+            let access_token = auth::create_access_token(&user.username, scope, "first-party", &state.issuer, &state.keys, None)?;
             let refresh_token = auth::create_refresh_token();
             
             // 4. Guardar refresh token en Redis
-            auth::store_refresh_token(&state.redis_client, &user.username, &refresh_token).await?;
+            let session = auth::RefreshSession { username: user.username.clone(), client_id: "first-party".to_string(), scope: scope.to_string() };
+            auth::store_refresh_token(&state.redis_client, &session, &refresh_token).await?;
+
+            // Persistimos en base de datos para auditoría
+            let expires_at = Utc::now() + Duration::days(7);
+            let record = RefreshTokenRecord {
+                refresh_token: refresh_token.clone(),
+                client_id: "first-party".to_string(),
+                username: user.username.clone(),
+                scope: scope.to_string(),
+                expires_at,
+                revoked: false,
+            };
+            db::store_refresh_token_record(&state.pool, &record).await?;
+
+            // Crear sesión SSO y cookie HttpOnly
+            let session_id = auth::create_session(&state.redis_client, &user.username).await?;
+            let cookie = Cookie::build(("sso_session", session_id))
+                .http_only(true)
+                .secure(false)
+                .same_site(SameSite::Lax)
+                .path("/")
+                .max_age(CookieDuration::minutes(60))
+                .build();
+            let updated_jar = jar.add(cookie);
             
-            return Ok(Json(LoginResponse { access_token, refresh_token }));
+            return Ok((updated_jar, Json(LoginResponse { access_token, refresh_token })));
         }
     }
 
@@ -96,8 +126,9 @@ pub async fn login(
 // ============================================================================
 pub async fn register(
     State(state): State<AppState>,
+    jar: CookieJar,
     Json(payload): Json<LoginRequest>,
-) -> Result<Json<LoginResponse>, AppError> {
+) -> Result<(CookieJar, Json<LoginResponse>), AppError> {
     // Rate limiting por username
     let rate_key = format!("rate_limit:register:{}", payload.username);
     if !rate_limit::check_rate_limit(&state.redis_client, &rate_key).await? {
@@ -126,14 +157,54 @@ pub async fn register(
         .bind(&email)
         .bind(&hash)
         .execute(&state.pool)
-        .await?;
+        .await
+        .map_err(|e| {
+            if let Some(db_err) = e.as_database_error() {
+                // 23505 = unique_violation
+                if db_err.code() == Some(std::borrow::Cow::Borrowed("23505")) {
+                    tracing::warn!(target: "register", "Username already exists: {}", username);
+                    return AppError::ValidationError("Username already exists".to_string());
+                }
+            }
+            tracing::error!(target: "register", "Failed to insert user: {}", e);
+            AppError::DatabaseError(e)
+        })?;
     
-    let token = auth::create_jwt(&username)?;
+    let scope = "openid profile email offline_access";
+    let token = auth::create_access_token(&username, scope, "first-party", &state.issuer, &state.keys, None)?;
     let refresh_token = auth::create_refresh_token();
     
-    auth::store_refresh_token(&state.redis_client, &username, &refresh_token).await?;
+    let session = auth::RefreshSession { username: username.clone(), client_id: "first-party".to_string(), scope: scope.to_string() };
+    auth::store_refresh_token(&state.redis_client, &session, &refresh_token).await?;
+
+    let expires_at = Utc::now() + Duration::days(7);
+    let record = RefreshTokenRecord {
+        refresh_token: refresh_token.clone(),
+        client_id: "first-party".to_string(),
+        username: username.clone(),
+        scope: scope.to_string(),
+        expires_at,
+        revoked: false,
+    };
+    db::store_refresh_token_record(&state.pool, &record).await?;
+
+    let session_id = auth::create_session(&state.redis_client, &username).await?;
+    let cookie = Cookie::build(("sso_session", session_id))
+        .http_only(true)
+        .secure(false)
+        .same_site(SameSite::Lax)
+        .path("/")
+        .max_age(CookieDuration::minutes(60))
+        .build();
+    let updated_jar = jar.add(cookie);
     
-    Ok(Json(LoginResponse { access_token: token, refresh_token }))
+    // Email simulado (bienvenida/alta)
+    let email_body = format!(
+        "Hola {username},\n\nTu cuenta se ha creado correctamente y ya puedes usar SSO/OIDC.\n\nScopes por defecto: {scope}\n\n-- Equipo de autenticación"
+    );
+    let _ = email::send_email(&email.unwrap_or_else(|| "user@example.com".to_string()), "Bienvenido a SSO", &email_body).await;
+    
+    Ok((updated_jar, Json(LoginResponse { access_token: token, refresh_token })))
 }
 
 pub async fn refresh(
@@ -141,12 +212,25 @@ pub async fn refresh(
     Json(payload): Json<RefreshRequest>,
 ) -> Result<Json<LoginResponse>, AppError> {
     // Validar refresh token
-    let username = auth::validate_refresh_token(&state.redis_client, &payload.refresh_token)
+    let session = auth::validate_refresh_token(&state.redis_client, &payload.refresh_token)
         .await?
         .ok_or_else(|| AppError::AuthError("Invalid or expired refresh token".to_string()))?;
 
+    if let Some(record) = db::get_refresh_token_record(&state.pool, &payload.refresh_token).await? {
+        if record.revoked || record.expires_at < Utc::now() {
+            return Err(AppError::AuthError("Refresh token expired or revoked".to_string()));
+        }
+    }
+
     // Generar nuevo access token
-    let access_token = auth::create_jwt(&username)?;
+    let access_token = auth::create_access_token(
+        &session.username,
+        &session.scope,
+        &session.client_id,
+        &state.issuer,
+        &state.keys,
+        None,
+    )?;
     
     // Mantener el mismo refresh token (o generar uno nuevo si prefieres rotación)
     Ok(Json(LoginResponse {
@@ -157,10 +241,21 @@ pub async fn refresh(
 
 pub async fn logout(
     State(state): State<AppState>,
+    jar: CookieJar,
     Json(payload): Json<RefreshRequest>,
-) -> Result<Json<serde_json::Value>, AppError> {
+) -> Result<(CookieJar, Json<serde_json::Value>), AppError> {
     // Revocar refresh token
     auth::revoke_refresh_token(&state.redis_client, &payload.refresh_token).await?;
+
+    db::revoke_refresh_token_record(&state.pool, &payload.refresh_token).await?;
+
+    // Revocar sesión SSO si existe cookie
+    let mut updated_jar = jar;
+    if let Some(cookie) = updated_jar.get("sso_session") {
+        let session_id = cookie.value().to_string();
+        auth::revoke_session(&state.redis_client, &session_id).await?;
+        updated_jar = updated_jar.remove(Cookie::from("sso_session"));
+    }
     
-    Ok(Json(serde_json::json!({ "message": "Logged out successfully" })))
+    Ok((updated_jar, Json(serde_json::json!({ "message": "Logged out successfully" }))))
 }

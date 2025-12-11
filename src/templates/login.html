@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>SSO Login</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #0f172a; color: #e2e8f0; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+    .card { background: #111827; padding: 32px; border-radius: 12px; width: 360px; box-shadow: 0 20px 60px rgba(0,0,0,0.35); }
+    h1 { margin-top: 0; font-size: 22px; }
+    label { display: block; margin-top: 16px; font-size: 14px; color: #cbd5e1; }
+    input { width: 100%; padding: 10px; margin-top: 8px; border-radius: 8px; border: 1px solid #334155; background: #0b1220; color: #e2e8f0; }
+    button { margin-top: 20px; width: 100%; padding: 12px; border: none; border-radius: 10px; background: linear-gradient(135deg,#06b6d4,#22d3ee); color: #0b1220; font-weight: 700; cursor: pointer; }
+    .error { margin-top: 12px; color: #f87171; font-size: 14px; }
+    small { color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Accede a tu cuenta</h1>
+    <form method="POST" action="/login/form">
+      <label>Usuario</label>
+      <input type="text" name="username" placeholder="usuario" required />
+      <label>Contraseña</label>
+      <input type="password" name="password" placeholder="••••••••" required />
+      {{NEXT_HIDDEN}}
+      <button type="submit">Continuar</button>
+      {{ERROR_HTML}}
+      <small>Tu sesión SSO se aplicará al flujo OAuth2/OIDC en curso.</small>
+    </form>
+  </div>
+</body>
+</html>

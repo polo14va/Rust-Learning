@@ -20,6 +20,9 @@ mod rate_limit;
 mod builders;
 mod metrics;  // Métricas de Prometheus
 mod metrics_middleware;  // Middleware de métricas HTTP
+mod oauth;
+mod templates;
+mod email;
 
 #[tokio::main]
 async fn main() {
@@ -51,16 +54,35 @@ async fn main() {
         .await
         .expect("Fallo de migración");
 
+    // Registrar cliente interno first-party para refrescos y SSO
+    db::ensure_client_exists(
+        &pool,
+        "first-party",
+        "first-secret",
+        "http://localhost:3000/callback",
+        "openid profile email offline_access",
+        "authorization_code,refresh_token,client_credentials",
+        "First Party Internal Client",
+    )
+    .await
+    .expect("No se pudo asegurar el cliente first-party");
+
     // 2. Conectar a Redis
     let redis_url = env::var("REDIS_URL")
         .unwrap_or_else(|_| "redis://host.docker.internal/".to_string());
-    
+
     tracing::info!("Connecting to Redis at: {}", redis_url);
     let redis_client = redis::Client::open(redis_url.as_str()).expect("Error creando cliente Redis");
+
+    // 2. Cargar claves JWT (RSA) y issuer
+    let keys = auth::load_jwt_keys().expect("Failed to load JWT keys");
+    let issuer = env::var("OIDC_ISSUER").unwrap_or_else(|_| "http://localhost:3000".to_string());
 
     let shared_state = AppState {
         pool,
         redis_client,
+        keys,
+        issuer,
     };
 
     // 3. Router
@@ -74,11 +96,24 @@ async fn main() {
         .route("/health", get(health::health_check))
         .route("/metrics", get(metrics_handler))  // Endpoint de métricas
         .route("/users", get(handlers::list_users))
-        .route("/login", post(handlers::login))
+        .route("/login", get(oauth::login_page).post(handlers::login).options(oauth::options_ok))
+        .route("/login/", get(oauth::login_page).options(oauth::options_ok)) // soporte trailing slash
+        .route("/login/form", get(oauth::options_ok).post(oauth::login_form).options(oauth::options_ok))
+        .route("/login/form/", get(oauth::options_ok).post(oauth::login_form).options(oauth::options_ok))
         .route("/register", post(handlers::register))
         .route("/refresh", post(handlers::refresh))
         .layer(axum_middleware::from_fn(metrics_middleware::metrics_middleware))  // Métricas automáticas
         .route("/logout", post(handlers::logout))
+        // OAuth2 / OIDC
+        .route("/authorize", get(oauth::authorize))
+        .route("/token", post(oauth::token))
+        .route("/introspect", post(oauth::introspect))
+        .route("/revoke", post(oauth::revoke))
+        .route("/userinfo", get(oauth::userinfo))
+        .route("/consent", get(oauth::consent_page).post(oauth::submit_consent).options(oauth::options_ok))
+        .route("/consent/", get(oauth::consent_page).options(oauth::options_ok))
+        .route("/.well-known/openid-configuration", get(oauth::openid_configuration))
+        .route("/.well-known/jwks.json", get(oauth::jwks))
         .with_state(shared_state);
 
     // 4. Server

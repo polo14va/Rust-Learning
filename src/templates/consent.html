@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Consentimiento</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #0f172a; color: #e2e8f0; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+    .card { background: #111827; padding: 32px; border-radius: 12px; width: 420px; box-shadow: 0 20px 60px rgba(0,0,0,0.35); }
+    h1 { margin-top: 0; font-size: 22px; }
+    ul { padding-left: 18px; }
+    .buttons { display: flex; gap: 12px; margin-top: 20px; }
+    button { flex: 1; padding: 12px; border: none; border-radius: 10px; font-weight: 700; cursor: pointer; }
+    .approve { background: linear-gradient(135deg,#10b981,#34d399); color: #0b1220; }
+    .deny { background: #1f2937; color: #e2e8f0; border: 1px solid #334155; }
+    .meta { color: #94a3b8; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>{{CLIENT_NAME}} solicita acceso</h1>
+    <p class="meta">Usuario: {{USERNAME}}</p>
+    <p>Scopes solicitados:</p>
+    <ul>
+      {{SCOPES}}
+    </ul>
+    <form method="POST" action="/consent">
+      <input type="hidden" name="client_id" value="{{CLIENT_ID}}"/>
+      <input type="hidden" name="redirect_uri" value="{{REDIRECT_URI}}"/>
+      <input type="hidden" name="scope" value="{{SCOPE_VALUE}}"/>
+      <input type="hidden" name="response_type" value="code"/>
+      {{STATE_INPUT}}
+      {{CODE_CHALLENGE_INPUT}}
+      {{CODE_METHOD_INPUT}}
+      {{NONCE_INPUT}}
+      <div class="buttons">
+        <button class="deny" name="decision" value="deny" type="submit">Denegar</button>
+        <button class="approve" name="decision" value="approve" type="submit">Permitir</button>
+      </div>
+    </form>
+  </div>
+</body>
+</html>

@@ -4,12 +4,15 @@ use axum::{
     Json,
 };
 use serde_json::json;
+use tracing::error;
 
 // Nuestro tipo de error personalizado
 #[derive(Debug)]
 pub enum AppError {
     DatabaseError(sqlx::Error),
     AuthError(String),
+    InternalError(String),
+    ValidationError(String),
 }
 
 // Permitimos usar `?` para convertir automáticamente sqlx::Error en AppError
@@ -24,13 +27,18 @@ impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, error_message) = match self {
             AppError::DatabaseError(err) => {
-                // En un entorno real, loguearíamos el error detallado internamente
-                // y mostraríamos un mensaje genérico al usuario.
-                println!("Database Error: {}", err);
+                error!(target: "app_error", "Database Error: {}", err);
                 (StatusCode::INTERNAL_SERVER_ERROR, "Error interno de base de datos".to_string())
             },
             AppError::AuthError(msg) => {
                 (StatusCode::UNAUTHORIZED, msg)
+            },
+            AppError::InternalError(msg) => {
+                error!(target: "app_error", "Internal Error: {}", msg);
+                (StatusCode::INTERNAL_SERVER_ERROR, msg)
+            },
+            AppError::ValidationError(msg) => {
+                (StatusCode::BAD_REQUEST, msg)
             }
         };
 

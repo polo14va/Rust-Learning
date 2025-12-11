@@ -96,6 +96,7 @@ impl UserRegistration<NoPassword> {
     }
 
     /// Configura email (opcional) sin cambiar el estado
+    #[allow(dead_code)]
     pub fn email(self, email: impl Into<String>) -> Self {
         UserRegistration {
             username: self.username,

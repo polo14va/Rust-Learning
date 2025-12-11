@@ -15,8 +15,8 @@
 
 use lazy_static::lazy_static;
 use prometheus::{
-    register_counter_vec, register_histogram_vec, register_int_counter_vec, CounterVec,
-    Encoder, HistogramVec, IntCounterVec, TextEncoder,
+    register_histogram_vec, register_int_counter_vec, Encoder, HistogramVec, IntCounterVec,
+    TextEncoder,
 };
 
 // ============================================================================
@@ -124,22 +124,26 @@ pub fn record_cache_miss(cache_type: &str) {
 }
 
 /// Registra un intento de autenticación
+#[allow(dead_code)]
 pub fn record_auth_attempt(success: bool) {
     let result = if success { "success" } else { "failure" };
     AUTH_ATTEMPTS.with_label_values(&[result]).inc();
 }
 
 /// Registra un token JWT emitido
+#[allow(dead_code)]
 pub fn record_jwt_issued(token_type: &str) {
     JWT_TOKENS_ISSUED.with_label_values(&[token_type]).inc();
 }
 
 /// Registra un rate limit excedido
+#[allow(dead_code)]
 pub fn record_rate_limit_exceeded(endpoint: &str) {
     RATE_LIMIT_EXCEEDED.with_label_values(&[endpoint]).inc();
 }
 
 /// Registra duración de query a DB
+#[allow(dead_code)]
 pub fn record_db_query(query_type: &str, duration: f64) {
     DB_QUERY_DURATION
         .with_label_values(&[query_type])
