@@ -1,0 +1,17 @@
+# ============================================================================
+# CONFIGMAP: Configuración no sensible
+# ============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rust-api-config
+  namespace: rust-api
+data:
+  # Configuración de la aplicación
+  JWT_EXPIRATION_MINUTES: "15"
+  RATE_LIMIT_PER_SECOND: "10"
+  RUST_LOG: "info"
+  
+  # URLs de servicios (usan DNS interno de K8s)
+  DATABASE_URL: "postgres://postgres:PASSWORD_PLACEHOLDER@postgres-service:5432/rust_db"
+  REDIS_URL: "redis://redis-service:6379/"

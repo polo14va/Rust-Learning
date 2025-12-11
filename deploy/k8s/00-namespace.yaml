@@ -1,0 +1,10 @@
+# ============================================================================
+# NAMESPACE: Aislamiento lógico de recursos
+# ============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: rust-api
+  labels:
+    name: rust-api
+    environment: production

@@ -19,5 +19,24 @@ services:
     ports:
       - "6379:6379"
 
+  # API Rust (opcional, si quieres correrla en Docker Compose)
+  api:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      # Variables de entorno para Docker Compose
+      DATABASE_URL: postgres://postgres:postgres@db:5432/rust_db
+      REDIS_URL: redis://redis:6379/
+      JWT_SECRET: dev_secret_key_change_in_prod
+      JWT_EXPIRATION_MINUTES: "15"
+      RATE_LIMIT_PER_SECOND: "10"
+      RUST_LOG: info
+    depends_on:
+      - db
+      - redis
+
 volumes:
   postgres_data:

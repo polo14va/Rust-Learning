@@ -1,0 +1,107 @@
+# ============================================================================
+# POSTGRES: Base de datos con almacenamiento persistente
+# ============================================================================
+# Usa StatefulSet (no Deployment) para garantizar:
+# - Identidad de red estable
+# - Almacenamiento persistente por pod
+# - Orden de inicio/apagado predecible
+# ============================================================================
+
+---
+# PersistentVolumeClaim para Postgres
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: rust-api
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi  # Ajustar según necesidad
+  # storageClassName: fast-ssd  # Descomentar si tienes storage class específica
+
+---
+# StatefulSet de Postgres
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: rust-api
+spec:
+  serviceName: postgres-service
+  replicas: 1  # Postgres no escala horizontalmente (usar réplicas read-only si necesitas)
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15-alpine
+        ports:
+        - containerPort: 5432
+          name: postgres
+        env:
+        - name: POSTGRES_DB
+          value: rust_db
+        - name: POSTGRES_USER
+          value: postgres
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: rust-api-secrets
+              key: postgres-password
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        # Healthcheck
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - postgres
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - postgres
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: postgres-storage
+        persistentVolumeClaim:
+          claimName: postgres-pvc
+
+---
+# Service para Postgres (Expuesto externamente)
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-service
+  namespace: rust-api
+spec:
+  selector:
+    app: postgres
+  ports:
+  - port: 5432
+    targetPort: 5432
+    nodePort: 30432  # Puerto externo (30000-32767)
+  type: NodePort  # Cambiado de ClusterIP a NodePort para acceso externo

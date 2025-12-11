@@ -49,8 +49,11 @@ async fn main() {
         .expect("Fallo de migración");
 
     // 2. Conectar a Redis
-    // "redis://host.docker.internal/" porque Redis está en otro contenedor
-    let redis_client = redis::Client::open("redis://host.docker.internal/").expect("Error creando cliente Redis");
+    let redis_url = env::var("REDIS_URL")
+        .unwrap_or_else(|_| "redis://host.docker.internal/".to_string());
+    
+    tracing::info!("Connecting to Redis at: {}", redis_url);
+    let redis_client = redis::Client::open(redis_url.as_str()).expect("Error creando cliente Redis");
 
     let shared_state = AppState {
         pool,

@@ -1,0 +1,40 @@
+# Fly.io Configuration
+# Deploy: fly deploy
+
+app = "rust-api-production"
+
+[build]
+  # Usa el Dockerfile que creamos
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "3000"
+  RUST_LOG = "info"  # Nivel de logs en producción
+
+# Configuración de servicio HTTP
+[[services]]
+  internal_port = 3000
+  protocol = "tcp"
+
+  # HTTP (redirige a HTTPS automáticamente)
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+  
+  # HTTPS (SSL automático con Let's Encrypt)
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  # Healthcheck (Fly reinicia si falla)
+  [services.http_checks]
+    interval = "15s"
+    timeout = "2s"
+    grace_period = "5s"
+    method = "GET"
+    path = "/health"
+
+# Auto-scaling (opcional)
+[scaling]
+  min_machines = 1
+  max_machines = 3

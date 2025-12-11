@@ -1,0 +1,45 @@
+# ============================================================================
+# INGRESS: Acceso externo con HTTPS (requiere Ingress Controller)
+# ============================================================================
+# Requiere:
+# - Ingress Controller instalado (nginx, traefik, etc.)
+# - Cert-Manager para SSL automático (Let's Encrypt)
+#
+# Instalar Nginx Ingress:
+# kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.1/deploy/static/provider/cloud/deploy.yaml
+#
+# Instalar Cert-Manager:
+# kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml
+# ============================================================================
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rust-api-ingress
+  namespace: rust-api
+  annotations:
+    # Nginx Ingress
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    
+    # Cert-Manager (SSL automático)
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    
+    # Rate limiting (adicional al de la app)
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+spec:
+  tls:
+  - hosts:
+    - api.tudominio.com  # CAMBIAR: tu dominio
+    secretName: rust-api-tls
+  rules:
+  - host: api.tudominio.com  # CAMBIAR: tu dominio
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: rust-api-service
+            port:
+              number: 80

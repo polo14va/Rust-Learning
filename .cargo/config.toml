@@ -1,0 +1,16 @@
+# Configuración de Cargo para compilación más rápida en macOS
+
+[build]
+# Compilación incremental (reutiliza código ya compilado)
+incremental = true
+
+# Linker más rápido en macOS (si tienes mold instalado: brew install mold)
+# Descomenta si instalas mold:
+# [target.aarch64-apple-darwin]
+# linker = "clang"
+# rustflags = ["-C", "link-arg=-fuse-ld=/opt/homebrew/bin/mold"]
+
+# Para Intel Mac, usa:
+# [target.x86_64-apple-darwin]
+# linker = "clang"
+# rustflags = ["-C", "link-arg=-fuse-ld=/opt/homebrew/bin/mold"]

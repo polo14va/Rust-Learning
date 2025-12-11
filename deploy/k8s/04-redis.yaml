@@ -1,0 +1,76 @@
+# ============================================================================
+# REDIS: Cache distribuido (sin persistencia)
+# ============================================================================
+# Usa Deployment (no StatefulSet) porque:
+# - Redis es cache (datos efímeros)
+# - No necesita almacenamiento persistente
+# - Puede escalar horizontalmente con Redis Cluster (avanzado)
+# ============================================================================
+
+---
+# Deployment de Redis
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: rust-api
+spec:
+  replicas: 1  # Para Redis Cluster, usar StatefulSet con 3+ réplicas
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+          name: redis
+        command:
+        - redis-server
+        - --maxmemory
+        - 256mb
+        - --maxmemory-policy
+        - allkeys-lru  # Evict least recently used keys
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        # Healthcheck
+        livenessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 5
+          periodSeconds: 5
+
+---
+# Service para Redis (Expuesto externamente)
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-service
+  namespace: rust-api
+spec:
+  selector:
+    app: redis
+  ports:
+  - port: 6379
+    targetPort: 6379
+    nodePort: 30379  # Puerto externo
+  type: NodePort  # Expuesto para acceso externo

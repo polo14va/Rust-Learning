@@ -1,0 +1,195 @@
+# ============================================================================
+# RUST API: Deployment con 3 réplicas + Auto-scaling
+# ============================================================================
+# Características:
+# - 3 réplicas para alta disponibilidad
+# - Rolling updates (zero-downtime deploys)
+# - Healthchecks (liveness + readiness)
+# - Resource limits
+# - HorizontalPodAutoscaler (auto-scaling basado en CPU)
+# ============================================================================
+
+---
+# Deployment de la API Rust
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rust-api
+  namespace: rust-api
+  labels:
+    app: rust-api
+spec:
+  replicas: 3  # 3 pods para alta disponibilidad
+  selector:
+    matchLabels:
+      app: rust-api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1        # Máximo 1 pod extra durante update
+      maxUnavailable: 1  # Máximo 1 pod down durante update
+  template:
+    metadata:
+      labels:
+        app: rust-api
+        version: v1
+    spec:
+      # Init Containers: Esperan a que Redis y Postgres estén listos
+      initContainers:
+      - name: wait-for-postgres
+        image: busybox:1.36
+        command: ['sh', '-c']
+        args:
+        - |
+          echo "Waiting for Postgres..."
+          until nc -z postgres-service 5432; do
+            echo "Postgres is unavailable - sleeping"
+            sleep 2
+          done
+          echo "Postgres is up!"
+      
+      - name: wait-for-redis
+        image: busybox:1.36
+        command: ['sh', '-c']
+        args:
+        - |
+          echo "Waiting for Redis..."
+          until nc -z redis-service 6379; do
+            echo "Redis is unavailable - sleeping"
+            sleep 2
+          done
+          echo "Redis is up!"
+      
+      containers:
+      - name: api
+        image: rust-api:local  # CAMBIAR: tu imagen Docker
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 3000
+          name: http
+        
+        # Variables de entorno
+        env:
+        - name: PORT
+          value: "3000"
+        
+        # Desde ConfigMap
+        - name: JWT_EXPIRATION_MINUTES
+          valueFrom:
+            configMapKeyRef:
+              name: rust-api-config
+              key: JWT_EXPIRATION_MINUTES
+        - name: RATE_LIMIT_PER_SECOND
+          valueFrom:
+            configMapKeyRef:
+              name: rust-api-config
+              key: RATE_LIMIT_PER_SECOND
+        - name: RUST_LOG
+          valueFrom:
+            configMapKeyRef:
+              name: rust-api-config
+              key: RUST_LOG
+        
+        # Desde Secrets (sensible)
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: rust-api-secrets
+              key: jwt-secret
+        
+        # DATABASE_URL construida dinámicamente
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: rust-api-secrets
+              key: postgres-password
+        - name: DATABASE_URL
+          value: "postgres://postgres:$(POSTGRES_PASSWORD)@postgres-service:5432/rust_db"
+        
+        - name: REDIS_URL
+          valueFrom:
+            configMapKeyRef:
+              name: rust-api-config
+              key: REDIS_URL
+        
+        # Resource limits (IMPORTANTE para auto-scaling)
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"
+        
+        # Liveness Probe: K8s reinicia el pod si falla
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+        
+        # Readiness Probe: K8s no envía tráfico si no está listo
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 2
+          failureThreshold: 2
+        
+        # Startup Probe: Da tiempo a la app para iniciar (migraciones)
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 0
+          periodSeconds: 5
+          failureThreshold: 30  # 30 * 5s = 150s max startup time
+
+---
+# Service para la API (LoadBalancer interno)
+apiVersion: v1
+kind: Service
+metadata:
+  name: rust-api-service
+  namespace: rust-api
+spec:
+  selector:
+    app: rust-api
+  ports:
+  - port: 80
+    targetPort: 3000
+    protocol: TCP
+  type: LoadBalancer  # Cambia a NodePort o ClusterIP según tu cluster
+
+---
+# HorizontalPodAutoscaler: Auto-scaling basado en CPU
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: rust-api-hpa
+  namespace: rust-api
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: rust-api
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70  # Escala si CPU > 70%
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80  # Escala si memoria > 80%
