@@ -16,10 +16,16 @@ pub async fn get_dashboard_data(client: &redis::Client) -> Result<Option<Dashboa
     let cached_json: Option<String> = conn.get("dashboard_data").await.map_err(redis_error)?;
 
     if let Some(json_str) = cached_json {
+        // CACHE HIT - Registrar métrica
+        crate::metrics::record_cache_hit("redis");
+        
         let data: DashboardData = serde_json::from_str(&json_str).unwrap(); // Unwrap seguro si confiamos en lo que guardamos
         return Ok(Some(data));
     }
 
+    // CACHE MISS - Registrar métrica
+    crate::metrics::record_cache_miss("redis");
+    
     Ok(None)
 }
 

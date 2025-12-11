@@ -1,6 +1,7 @@
 use axum::{
     routing::{get, post},
     Router,
+    middleware as axum_middleware,
 };
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
@@ -16,7 +17,9 @@ mod auth;
 mod middleware;
 mod health;
 mod rate_limit;
-mod builders;  // TYPE-STATE PATTERN builders
+mod builders;
+mod metrics;  // Métricas de Prometheus
+mod metrics_middleware;  // Middleware de métricas HTTP
 
 #[tokio::main]
 async fn main() {
@@ -63,16 +66,18 @@ async fn main() {
     // 3. Router
     let protected_routes = Router::new()
         .route("/dashboard", get(handlers::get_dashboard))
-        .route_layer(axum::middleware::from_fn(middleware::auth_middleware));
+        .layer(axum::middleware::from_fn_with_state(shared_state.clone(), middleware::auth_middleware));
 
     let app = Router::new()
         .merge(protected_routes)
         .route("/", get(root))
         .route("/health", get(health::health_check))
+        .route("/metrics", get(metrics_handler))  // Endpoint de métricas
         .route("/users", get(handlers::list_users))
         .route("/login", post(handlers::login))
         .route("/register", post(handlers::register))
         .route("/refresh", post(handlers::refresh))
+        .layer(axum_middleware::from_fn(metrics_middleware::metrics_middleware))  // Métricas automáticas
         .route("/logout", post(handlers::logout))
         .with_state(shared_state);
 
@@ -86,4 +91,16 @@ async fn main() {
 
 async fn root() -> &'static str {
     "Rust API Advanced (Caching Implemented)"
+}
+
+// Handler para exponer métricas de Prometheus
+async fn metrics_handler() -> Result<String, (axum::http::StatusCode, String)> {
+    metrics::export_metrics()
+        .map_err(|e| {
+            tracing::error!("Failed to export metrics: {}", e);
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to export metrics: {}", e),
+            )
+        })
 }

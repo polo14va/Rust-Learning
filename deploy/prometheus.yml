@@ -1,0 +1,31 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'rust-api'
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names:
+            - rust-api
+    relabel_configs:
+      # Solo scrapear pods con label app=rust-api
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        action: keep
+        regex: rust-api
+      
+      # Usar el puerto 3000
+      - source_labels: [__meta_kubernetes_pod_ip]
+        action: replace
+        target_label: __address__
+        replacement: $1:3000
+      
+      # Añadir labels útiles
+      - source_labels: [__meta_kubernetes_pod_name]
+        action: replace
+        target_label: pod
+      
+      - source_labels: [__meta_kubernetes_namespace]
+        action: replace
+        target_label: namespace
