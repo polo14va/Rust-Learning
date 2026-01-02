@@ -66,25 +66,28 @@ cargo run
 
 ¡Listo! El servidor estará escuchando en `http://localhost:3000`.
 
-### Endpoints actuales (fase boilerplate)
-*   `GET /`: Health check simple.
-*   `GET /health`: Estado de servicio.
+### Endpoints actuales
+*   `GET /`: Respuesta simple (root).
+*   `GET /health`: Estado del servicio (Postgres + Redis).
 *   `GET /metrics`: Métricas Prometheus.
-*   `GET /users`: Lista los usuarios desde la base de datos Postgres.
-*   `GET /login`: UI de login SSO (cookie + sesión en Redis).
-*   `POST /register`: Alta de usuario (dev).
-*   `POST /login`: Login con JWT + refresh.
-*   `POST /refresh`: Renovación de access token.
-*   `POST /logout`: Revoca refresh token.
+*   `GET /users`: Lista usuarios desde Postgres.
 *   `GET /dashboard`: Endpoint protegido con middleware de autenticación.
+*   `GET /login`: UI de login SSO.
+*   `POST /login`: Login con JWT + refresh.
+*   `POST /register`: Alta de usuario (dev).
+*   `POST /refresh`: Renovación de access token.
+*   `POST /logout`: Revoca refresh token + sesión SSO.
 
-### Endpoints previstos (fase Auth 2.0/OIDC)
-*   `/authorize` (Authorization Code + PKCE)  
-*   `/token` (code exchange, client credentials, refresh)  
-*   `/introspect`, `/revoke`  
-*   `/userinfo`, `/.well-known/openid-configuration`, `/.well-known/jwks.json`  
-*   `/login` (GET UI / POST API), `/consent` (UI de scopes), `/logout` (SSO)  
-*   APIs de administración de clientes, scopes y usuarios.
+### Endpoints OAuth2/OIDC implementados
+*   `GET /authorize`: Authorization Code + PKCE.
+*   `POST /token`: code exchange, refresh, client_credentials.
+*   `POST /introspect`: Introspección de token.
+*   `POST /revoke`: Revocación de refresh token.
+*   `GET /userinfo`: Datos de usuario autenticado.
+*   `GET /.well-known/openid-configuration`: Descubrimiento OIDC.
+*   `GET /.well-known/jwks.json`: JWKS público.
+*   `GET /consent`: UI de consentimiento.
+*   `POST /consent`: Envío de consentimiento.
 
 ### Variables de entorno clave (Auth/SSO)
 - `OIDC_ISSUER` (default `http://localhost:3000`)
@@ -105,6 +108,146 @@ cargo run
     *   `db.rs`: Capa de acceso a datos (Queries).
     *   `handlers.rs`: Controladores HTTP.
     *   `error.rs`: Manejo de errores centralizado.
+
+## 🧠 Funcionamiento interno (resumen exhaustivo)
+
+### Arranque de la aplicación
+1. Carga variables de entorno con `dotenvy` y configura logging con `tracing`.
+2. Conecta a Postgres con `sqlx` y ejecuta migraciones.
+3. Registra un cliente OAuth interno "first-party" si no existe.
+4. Conecta a Redis para sesiones, refresh tokens y cache.
+5. Carga claves JWT RSA desde `JWT_PRIVATE_KEY_PEM` o genera una efímera para desarrollo.
+6. Levanta el servidor Axum en `0.0.0.0:3000`.
+
+### Autenticación, SSO y tokens
+- Passwords con Argon2, con compatibilidad para hashes Bcrypt antiguos.
+- JWT RS256 con `kid` derivado de la clave pública.
+- Refresh tokens guardados en Redis y auditados en Postgres.
+- Sesiones SSO con cookie `sso_session` y TTL configurable.
+- Rate limiting por username en Redis (ventana de 60s).
+- PKCE con `S256` cuando corresponde.
+- Consentimiento por scopes almacenado en Redis con TTL.
+
+### Cache y dashboard protegido
+- `/dashboard` está protegido por middleware que valida Bearer JWT.
+- Se cachea en Redis con TTL 60s para reducir carga.
+- Las consultas a DB se ejecutan concurrentemente (`tokio::join!`).
+
+### Observabilidad
+- Middleware registra métricas HTTP: total, latencia, status.
+- Métricas de cache, auth y rate limiting expuestas en `/metrics`.
+- Health check validando Postgres y Redis en `/health`.
+
+## 🏗 Arquitectura (alto nivel)
+
+```
+Cliente/Browser
+   |
+   v
+Axum API (Rust)  --->  Redis (sesiones, refresh, consent, cache)
+   |
+   v
+Postgres (usuarios, clientes OAuth, auth codes, refresh tokens)
+```
+
+## 🔄 Flujos clave (paso a paso)
+
+### 1) Login SSO (UI)
+1. Usuario abre `GET /login`.
+2. Envía credenciales a `POST /login/form`.
+3. Se valida password y se crea una sesión SSO en Redis.
+4. Se devuelve cookie `sso_session`.
+
+### 2) OAuth2 Authorization Code + PKCE
+1. Cliente llama `GET /authorize` con `client_id`, `redirect_uri`, `scope`, `code_challenge`.
+2. Si no hay sesión SSO, redirige a `GET /login`.
+3. Si no hay consentimiento previo, muestra `GET /consent`.
+4. Al aprobar, genera código y redirige al `redirect_uri`.
+5. Cliente intercambia código en `POST /token` con `code_verifier`.
+
+### 3) Refresh Token
+1. Cliente envía `POST /token` con `grant_type=refresh_token`.
+2. Se valida en Redis y en Postgres (revocación/expiración).
+3. Se emite nuevo access token.
+
+### 4) Acceso a recursos protegidos
+1. Cliente envía `Authorization: Bearer <access_token>`.
+2. Middleware valida JWT y permite acceso (ej: `GET /dashboard`).
+
+## 🔐 Seguridad y controles
+
+### Passwords
+- Argon2 como algoritmo principal, compatibilidad con hashes Bcrypt existentes.
+
+### Tokens
+- JWT RS256 con `kid` y JWKS público.
+- Refresh tokens con TTL y revocación persistida.
+
+### Sesiones y consentimiento
+- Sesiones SSO en Redis con TTL configurable.
+- Consentimiento almacenado por `usuario + cliente + scope` con expiración.
+
+### Rate limiting
+- Implementado en Redis con ventana de 60s.
+- Clave basada en username por endpoint crítico (`login`, `register`).
+
+## 🧪 Datos de ejemplo
+- Usuario `admin` creado en migraciones con password `test123`.
+- Cliente OAuth `demo-client` con `demo-secret` y redirect URIs locales.
+
+## ⚙️ Variables de entorno (detalladas)
+
+Obligatorias:
+- `DATABASE_URL`
+- `REDIS_URL`
+
+Opcionales (con defaults):
+- `OIDC_ISSUER` (default `http://localhost:3000`)
+- `JWT_PRIVATE_KEY_PEM` (si no existe, se genera clave efímera)
+- `SESSION_TTL_MINUTES` (default `60`)
+- `REFRESH_TOKEN_TTL_DAYS` (default `7`)
+- `RATE_LIMIT_PER_SECOND` (default `10`)
+
+## 🗃 Modelo de datos (Postgres)
+- `users`: usuarios con `password_hash`.
+- `dashboard_stats`, `recent_activities`, `system_alerts`: datos del dashboard.
+- `oauth_clients`: clientes OAuth registrados.
+- `oauth_authorization_codes`: códigos de autorización (PKCE).
+- `oauth_refresh_tokens`: refresh tokens con expiración y revocación.
+- `oauth_jwks`: metadatos de claves (listo para rotación).
+
+## 🔌 Puertos expuestos
+
+### Aplicación
+- `3000/tcp`: API Axum (en local y contenedores).
+- Fly.io: expone `80` y `443` hacia el puerto interno `3000`.
+
+### Docker Compose (local)
+- Postgres: `5432`.
+- Redis: `6379`.
+- API: `3000` (si se habilita el servicio).
+
+### Kubernetes (manifests en `deploy/k8s`)
+- API: `3000` (container), Service `80 -> 3000`.
+- Postgres: `5432` (NodePort `30432`).
+- Redis: `6379` (NodePort `30379`).
+- Prometheus: `9090` (NodePort `30900`).
+- Grafana: `3000` (NodePort `30300`).
+
+## 🚢 Despliegue (resumen)
+
+### Docker
+- Imagen multi-stage en `deploy/Dockerfile`.
+- Healthcheck HTTP en `/health`.
+
+### Kubernetes
+- Deployment con 3 réplicas y auto-scaling.
+- Liveness/Readiness/Startup probes.
+- ConfigMap + Secrets para configuración sensible.
+- Ingress opcional con TLS.
+
+### Fly.io
+- Configurado en `deploy/fly.toml` con puertos 80/443.
 
 ## 🐛 Debugging
 El DevContainer ya viene pre-configurado con `lldb`. Puedes poner breakpoints en VS Code y presionar F5 para depurar tu código Rust paso a paso.
