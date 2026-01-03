@@ -1,10 +1,11 @@
 pub const LOGIN_TEMPLATE: &str = include_str!("login.html");
 pub const CONSENT_TEMPLATE: &str = include_str!("consent.html");
 
-pub fn render_login_page(next_hidden: &str, error_html: &str) -> String {
+pub fn render_login_page(next_hidden: &str, error_html: &str, mode_attr: &str) -> String {
     LOGIN_TEMPLATE
         .replace("{{NEXT_HIDDEN}}", next_hidden)
         .replace("{{ERROR_HTML}}", error_html)
+        .replace("{{MODE_ATTR}}", mode_attr)
 }
 
 pub fn render_consent_page(

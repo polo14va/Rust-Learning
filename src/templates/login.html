@@ -17,16 +17,66 @@
 <body>
   <div class="card">
     <h1>Accede a tu cuenta</h1>
-    <form method="POST" action="/login/form">
+    <form id="loginForm" method="POST" action="/login" data-mode="{{MODE_ATTR}}">
       <label>Usuario</label>
       <input type="text" name="username" placeholder="usuario" required />
       <label>Contraseña</label>
       <input type="password" name="password" placeholder="••••••••" required />
       {{NEXT_HIDDEN}}
       <button type="submit">Continuar</button>
-      {{ERROR_HTML}}
+      <div id="formError" class="error">{{ERROR_HTML}}</div>
       <small>Tu sesión SSO se aplicará al flujo OAuth2/OIDC en curso.</small>
     </form>
   </div>
+  <script>
+    const form = document.getElementById("loginForm");
+    const errorBox = document.getElementById("formError");
+    const mode = form?.dataset?.mode || "cookie";
+
+    function showError(message) {
+      if (!errorBox) return;
+      errorBox.textContent = message;
+      if (window.parent) {
+        window.parent.postMessage(
+          { type: "sso-login-error", message },
+          "*"
+        );
+      }
+    }
+
+    if (mode === "token" && form) {
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const formData = new FormData(form);
+        const payload = {
+          username: formData.get("username"),
+          password: formData.get("password"),
+        };
+        try {
+          const response = await fetch("/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const text = await response.text();
+          const data = text ? JSON.parse(text) : {};
+          if (!response.ok) {
+            showError(data.error || "Credenciales inválidas");
+            return;
+          }
+          if (window.parent) {
+            window.parent.postMessage(
+              { type: "sso-login-token", ...data },
+              "*"
+            );
+          }
+        } catch (err) {
+          showError("No se pudo conectar al servidor");
+        }
+      });
+    } else if (errorBox && errorBox.textContent.trim()) {
+      showError(errorBox.textContent.trim());
+    }
+  </script>
 </body>
 </html>

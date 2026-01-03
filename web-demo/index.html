@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SSO Auth Demo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Mono:wght@400;500&family=Space+Grotesk:wght@400;600;700&family=Source+Sans+3:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <div class="bg-glow"></div>
+  <div class="wrap">
+    <header class="hero" data-reveal>
+      <div>
+        <p class="eyebrow">SSO / OAuth2 / OIDC</p>
+        <h1>Auth Console</h1>
+        <p class="lead">
+          Login unico con SSO. Al completar el login se abre la consola privada
+          con todas las herramientas.
+        </p>
+      </div>
+      <div class="config">
+        <label class="label">Base URL</label>
+        <input id="baseUrl" class="input" type="text" value="http://localhost:3000" />
+        <div class="row">
+          <button id="btnLogin" class="btn">Login SSO</button>
+        </div>
+        <p id="loginError" class="error hidden"></p>
+      </div>
+    </header>
+
+    <section class="grid">
+      <article class="card wide" data-reveal>
+        <h2>Acceso privado</h2>
+        <p class="muted">
+          Este login crea la cookie SSO y te redirige a la consola con endpoints,
+          tokens, OAuth y observabilidad.
+        </p>
+      </article>
+    </section>
+  </div>
+
+  <div id="loginModal" class="modal hidden" aria-hidden="true">
+    <div class="modal-overlay" data-close></div>
+    <div class="modal-card">
+      <header class="modal-header">
+        <h3>Login SSO</h3>
+        <button id="btnCloseModal" class="btn ghost small">Cerrar</button>
+      </header>
+      <iframe id="loginFrame" title="Login SSO" loading="lazy"></iframe>
+    </div>
+  </div>
+</body>
+</html>

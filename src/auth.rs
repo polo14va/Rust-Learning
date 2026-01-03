@@ -6,6 +6,7 @@ use rand::rngs::OsRng;
 use redis::AsyncCommands;
 use rsa::{
     pkcs1::{DecodeRsaPrivateKey, DecodeRsaPublicKey, EncodeRsaPrivateKey, EncodeRsaPublicKey},
+    pkcs8::{DecodePrivateKey, DecodePublicKey},
     RsaPrivateKey, RsaPublicKey,
 };
 use rsa::traits::PublicKeyParts;
@@ -43,16 +44,36 @@ pub fn verify_password(password: &str, hash: &str) -> Result<bool, AppError> {
         .is_ok())
 }
 
+fn normalize_pem(value: &str) -> String {
+    value.replace("\\n", "\n")
+}
+
+fn parse_private_key(pem: &str) -> Result<RsaPrivateKey, AppError> {
+    RsaPrivateKey::from_pkcs1_pem(pem)
+        .or_else(|_| RsaPrivateKey::from_pkcs8_pem(pem))
+        .map_err(|e| AppError::InternalError(format!("Invalid RSA private key: {}", e)))
+}
+
+fn parse_public_key(pem: &str) -> Result<RsaPublicKey, AppError> {
+    RsaPublicKey::from_pkcs1_pem(pem)
+        .or_else(|_| RsaPublicKey::from_public_key_pem(pem))
+        .map_err(|e| AppError::InternalError(format!("Invalid RSA public key: {}", e)))
+}
+
 fn load_private_key_pem() -> Result<(String, String), AppError> {
-    if let Ok(private_pem) = env::var("JWT_PRIVATE_KEY_PEM") {
+    if let Ok(private_pem_raw) = env::var("JWT_PRIVATE_KEY_PEM") {
+        let private_pem = normalize_pem(&private_pem_raw);
         // Derivar la clave pública a partir de la privada si no se provee
-        let private = RsaPrivateKey::from_pkcs1_pem(&private_pem)
-            .map_err(|e| AppError::InternalError(format!("Invalid RSA private key: {}", e)))?;
-        let public_pem = private
-            .to_public_key()
-            .to_pkcs1_pem(rsa::pkcs8::LineEnding::LF)
-            .map_err(|e| AppError::InternalError(format!("Invalid RSA public key: {}", e)))?
-            .to_string();
+        let private = parse_private_key(&private_pem)?;
+        let public_pem = if let Ok(public_pem_raw) = env::var("JWT_PUBLIC_KEY_PEM") {
+            normalize_pem(&public_pem_raw)
+        } else {
+            private
+                .to_public_key()
+                .to_pkcs1_pem(rsa::pkcs8::LineEnding::LF)
+                .map_err(|e| AppError::InternalError(format!("Invalid RSA public key: {}", e)))?
+                .to_string()
+        };
         return Ok((private_pem, public_pem));
     }
 
@@ -91,8 +112,7 @@ pub fn load_jwt_keys() -> Result<JwtKeys, AppError> {
     let decoding = DecodingKey::from_rsa_pem(public_pem.as_bytes())
         .map_err(|e| AppError::InternalError(format!("Invalid RSA public key: {}", e)))?;
 
-    let public = RsaPublicKey::from_pkcs1_pem(&public_pem)
-        .map_err(|e| AppError::InternalError(format!("Invalid RSA public key: {}", e)))?;
+    let public = parse_public_key(&public_pem)?;
     let (n, e) = derive_jwk_components(&public);
 
     let mut hasher = Sha256::new();

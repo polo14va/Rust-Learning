@@ -7,6 +7,10 @@ use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
 use std::env;
 use crate::models::AppState;  // Importamos el struct AppState
+use tower_http::cors::CorsLayer;
+use tower_http::set_header::SetResponseHeaderLayer;
+use tower_http::services::ServeDir;
+use axum::http::{HeaderName, HeaderValue, Method};
 
 mod models;
 mod error;
@@ -90,16 +94,37 @@ async fn main() {
         .route("/dashboard", get(handlers::get_dashboard))
         .layer(axum::middleware::from_fn_with_state(shared_state.clone(), middleware::auth_middleware));
 
+    let cors = CorsLayer::new()
+        .allow_origin([
+            HeaderValue::from_static("http://localhost:8000"),
+            HeaderValue::from_static("http://127.0.0.1:8000"),
+        ])
+        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_headers([
+            HeaderName::from_static("content-type"),
+            HeaderName::from_static("authorization"),
+        ])
+        .allow_credentials(true);
+
+    let frame_policy = SetResponseHeaderLayer::if_not_present(
+        axum::http::header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(
+            "frame-ancestors 'self' http://localhost:8000 http://127.0.0.1:8000",
+        ),
+    );
+
     let app = Router::new()
         .merge(protected_routes)
+        .nest_service(
+            "/demo",
+            ServeDir::new("web-demo").append_index_html_on_directories(true),
+        )
         .route("/", get(root))
         .route("/health", get(health::health_check))
         .route("/metrics", get(metrics_handler))  // Endpoint de métricas
         .route("/users", get(handlers::list_users))
         .route("/login", get(oauth::login_page).post(handlers::login).options(oauth::options_ok))
         .route("/login/", get(oauth::login_page).options(oauth::options_ok)) // soporte trailing slash
-        .route("/login/form", get(oauth::options_ok).post(oauth::login_form).options(oauth::options_ok))
-        .route("/login/form/", get(oauth::options_ok).post(oauth::login_form).options(oauth::options_ok))
         .route("/register", post(handlers::register))
         .route("/refresh", post(handlers::refresh))
         .layer(axum_middleware::from_fn(metrics_middleware::metrics_middleware))  // Métricas automáticas
@@ -114,6 +139,8 @@ async fn main() {
         .route("/consent/", get(oauth::consent_page).options(oauth::options_ok))
         .route("/.well-known/openid-configuration", get(oauth::openid_configuration))
         .route("/.well-known/jwks.json", get(oauth::jwks))
+        .layer(cors)
+        .layer(frame_policy)
         .with_state(shared_state);
 
     // 4. Server

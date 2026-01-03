@@ -29,3 +29,4 @@ rsa = { version = "0.9", features = ["pem", "sha2"] }
 base64ct = { version = "1.6", features = ["alloc"] }
 time = "0.3"
 urlencoding = "2.1"
+tower-http = { version = "0.5", features = ["cors", "set-header", "fs"] }

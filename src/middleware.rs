@@ -5,6 +5,7 @@ use axum::{
     middleware::Next,
     response::Response,
 };
+use axum_extra::extract::cookie::CookieJar;
 use crate::{auth, models::AppState};
 
 pub async fn auth_middleware(
@@ -27,12 +28,33 @@ pub async fn auth_middleware(
                         // TODO: Podríamos inyectar el usuario en la request extensions aquí
                         Ok(next.run(request).await)
                     },
-                    Err(_) => Err(StatusCode::UNAUTHORIZED),
+                    Err(err) => {
+                        tracing::warn!("JWT validation failed: {}", err);
+                        let jar = CookieJar::from_headers(request.headers());
+                        if let Some(cookie) = jar.get("sso_session") {
+                            match auth::validate_session(&state.redis_client, cookie.value()).await {
+                                Ok(Some(_username)) => Ok(next.run(request).await),
+                                _ => Err(StatusCode::UNAUTHORIZED),
+                            }
+                        } else {
+                            Err(StatusCode::UNAUTHORIZED)
+                        }
+                    },
                 }
             } else {
                 Err(StatusCode::UNAUTHORIZED)
             }
         },
-        None => Err(StatusCode::UNAUTHORIZED),
+        None => {
+            let jar = CookieJar::from_headers(request.headers());
+            if let Some(cookie) = jar.get("sso_session") {
+                match auth::validate_session(&state.redis_client, cookie.value()).await {
+                    Ok(Some(_username)) => Ok(next.run(request).await),
+                    _ => Err(StatusCode::UNAUTHORIZED),
+                }
+            } else {
+                Err(StatusCode::UNAUTHORIZED)
+            }
+        },
     }
 }

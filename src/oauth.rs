@@ -4,7 +4,6 @@ use axum::{
     response::{Html, IntoResponse, Redirect, Response},
     Form, Json,
 };
-use axum_extra::extract::cookie::{Cookie, SameSite};
 use axum_extra::extract::CookieJar;
 use base64::{engine::general_purpose, Engine as _};
 use base64ct::Encoding;
@@ -12,7 +11,6 @@ use chrono::{Duration, Utc};
 use redis::AsyncCommands;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use time::Duration as CookieDuration;
 use urlencoding;
 use uuid::Uuid;
 
@@ -22,7 +20,6 @@ use crate::{
     auth,
     db,
     error::AppError,
-    rate_limit,
     templates,
     models::{
         AppState, AuthorizationCode, IntrospectionResponse, JwkKey, OAuthClient, OpenIdConfiguration,
@@ -65,13 +62,6 @@ pub struct RevokeRequest {
 }
 
 #[derive(Deserialize)]
-pub struct LoginForm {
-    pub username: String,
-    pub password: String,
-    pub next: Option<String>,
-}
-
-#[derive(Deserialize)]
 pub struct ConsentForm {
     pub client_id: String,
     pub redirect_uri: String,
@@ -88,6 +78,7 @@ pub struct ConsentForm {
 pub struct LoginPageParams {
     pub next: Option<String>,
     pub error: Option<String>,
+    pub mode: Option<String>,
 }
 
 pub async fn login_page(Query(params): Query<LoginPageParams>) -> Html<String> {
@@ -101,60 +92,17 @@ pub async fn login_page(Query(params): Query<LoginPageParams>) -> Html<String> {
         .as_ref()
         .map(|e| format!(r#"<div class="error">{}</div>"#, html_escape(e)))
         .unwrap_or_default();
+    let mode_attr = params
+        .mode
+        .as_deref()
+        .unwrap_or("cookie");
 
-    let page = templates::render_login_page(&next_hidden, &error_html);
+    let page = templates::render_login_page(&next_hidden, &error_html, mode_attr);
     Html(page)
 }
 
 pub async fn options_ok() -> StatusCode {
     StatusCode::NO_CONTENT
-}
-
-pub async fn login_form(
-    State(state): State<AppState>,
-    jar: CookieJar,
-    Form(form): Form<LoginForm>,
-) -> Result<(CookieJar, impl IntoResponse), AppError> {
-    let rate_key = format!("rate_limit:login_ui:{}", form.username);
-    if !rate_limit::check_rate_limit(&state.redis_client, &rate_key).await? {
-        return Err(AppError::AuthError("Too many requests. Try again later.".to_string()));
-    }
-
-    let user = db::get_user_by_username(&state.pool, &form.username)
-        .await?
-        .ok_or_else(|| AppError::AuthError("Credenciales inválidas".to_string()))?;
-
-    if !auth::verify_password(&form.password, &user.password_hash)? {
-        let mut redirect = String::from("/login");
-        let mut first = true;
-        if let Some(n) = form.next.as_ref() {
-            redirect.push_str(&format!("?next={}", urlencoding::encode(n)));
-            first = false;
-        }
-        redirect.push_str(if first { "?error=" } else { "&error=" });
-        redirect.push_str("Credenciales%20inv%C3%A1lidas");
-
-        let redirect = Redirect::temporary(&redirect);
-        return Ok((jar, redirect));
-    }
-
-    // Crear sesión SSO y cookie
-    let session_id = auth::create_session(&state.redis_client, &user.username).await?;
-    let cookie = Cookie::build(("sso_session", session_id))
-        .http_only(true)
-        .secure(false)
-        .same_site(SameSite::Lax)
-        .path("/")
-        .max_age(CookieDuration::minutes(60))
-        .build();
-    let updated_jar = jar.add(cookie);
-
-    let redirect_target = form
-        .next
-        .and_then(|n| decode_next(&n))
-        .unwrap_or_else(|| "/".to_string());
-
-    Ok((updated_jar, Redirect::temporary(&redirect_target)))
 }
 
 pub async fn authorize(
@@ -526,10 +474,18 @@ pub async fn userinfo(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<UserInfoResponse>, AppError> {
-    let token = extract_bearer(&headers)?;
-    let data = auth::validate_jwt(&token, &state.keys)
-        .map_err(|_| AppError::AuthError("Invalid token".to_string()))?;
-    let username = data.claims.sub;
+    let jar = CookieJar::from_headers(&headers);
+    let username = if let Ok(token) = extract_bearer(&headers) {
+        let data = auth::validate_jwt(&token, &state.keys)
+            .map_err(|_| AppError::AuthError("Invalid token".to_string()))?;
+        data.claims.sub
+    } else if let Some(cookie) = jar.get("sso_session") {
+        auth::validate_session(&state.redis_client, cookie.value())
+            .await?
+            .ok_or_else(|| AppError::AuthError("Invalid session".to_string()))?
+    } else {
+        return Err(AppError::AuthError("Missing authorization".to_string()));
+    };
 
     let user = db::get_user_by_username(&state.pool, &username)
         .await?
