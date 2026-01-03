@@ -156,6 +156,34 @@ function decodeJwt(token) {
   }
 }
 
+function isTokenExpired(token, skewSeconds = 30) {
+  const claims = decodeJwt(token);
+  if (!claims || !claims.exp) return false;
+  const now = Math.floor(Date.now() / 1000);
+  return now >= claims.exp - skewSeconds;
+}
+
+async function refreshTokens() {
+  const refreshToken = storage.get(STORAGE_KEYS.refresh);
+  if (!refreshToken) {
+    throw new Error("No hay refresh token guardado.");
+  }
+  const data = await requestForm("/token", {
+    grant_type: "refresh_token",
+    refresh_token: refreshToken,
+    client_id: CLIENT_ID,
+    client_secret: CLIENT_SECRET,
+  });
+  storage.set(STORAGE_KEYS.access, data.access_token || "");
+  if (data.refresh_token) {
+    storage.set(STORAGE_KEYS.refresh, data.refresh_token);
+  }
+  if (data.id_token) {
+    storage.set(STORAGE_KEYS.id, data.id_token);
+  }
+  return data;
+}
+
 async function requestJson(path, options = {}) {
   const url = `${getBaseUrl()}${path}`;
   const response = await fetch(url, {
@@ -183,7 +211,7 @@ function redirectToLogin() {
 }
 
 async function initPrivate() {
-  const token = storage.get(STORAGE_KEYS.access);
+  let token = storage.get(STORAGE_KEYS.access);
   if (!token) {
     setPrivateError("No hay access token en sessionStorage.");
     return;
@@ -202,6 +230,38 @@ async function initPrivate() {
       }
       redirectToLogin();
     });
+  }
+
+  const refreshBtn = $("btnRefresh");
+  if (refreshBtn) {
+    refreshBtn.addEventListener("click", async () => {
+      refreshBtn.disabled = true;
+      try {
+        setText("accessStatus", "Refrescando token...");
+        $("accessStatus")?.classList.remove("error", "ok");
+        await refreshTokens();
+        setText("accessStatus", "Token refrescado");
+        $("accessStatus")?.classList.add("ok");
+        window.location.replace("private.html");
+      } catch (err) {
+        setPrivateError(`Fallo al refrescar: ${err.message}`);
+        setText("accessStatus", "Refresh fallido");
+        $("accessStatus")?.classList.remove("ok");
+        $("accessStatus")?.classList.add("error");
+        refreshBtn.disabled = false;
+      }
+    });
+  }
+
+  if (isTokenExpired(token)) {
+    try {
+      await refreshTokens();
+      token = storage.get(STORAGE_KEYS.access);
+    } catch (err) {
+      setPrivateError(`Token expirado. Falló el refresh: ${err.message}`);
+      redirectToLogin();
+      return;
+    }
   }
 
   let userinfo;

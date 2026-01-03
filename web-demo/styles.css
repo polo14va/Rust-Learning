@@ -139,6 +139,12 @@ h2 {
   flex-wrap: wrap;
 }
 
+.header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .status-bar {
   display: flex;
   flex-wrap: wrap;
