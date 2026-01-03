@@ -32,6 +32,12 @@
     const form = document.getElementById("loginForm");
     const errorBox = document.getElementById("formError");
     const mode = form?.dataset?.mode || "cookie";
+    function clearLoginFields() {
+      const username = form?.querySelector('input[name="username"]');
+      const password = form?.querySelector('input[name="password"]');
+      if (username) username.value = "";
+      if (password) password.value = "";
+    }
 
     function showError(message) {
       if (!errorBox) return;
@@ -44,7 +50,20 @@
       }
     }
 
-    if (mode === "token" && form) {
+    function tryRedirectParent() {
+      if (!document.referrer) return;
+      try {
+        const ref = new URL(document.referrer);
+        if (ref.protocol !== "http:" && ref.protocol !== "https:") return;
+        window.parent.location.href = `${ref.origin}/private.html`;
+      } catch (err) {
+        // ignore
+      }
+    }
+
+    clearLoginFields();
+
+    if (form) {
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
         const formData = new FormData(form);
@@ -56,6 +75,7 @@
           const response = await fetch("/login", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            credentials: "include",
             body: JSON.stringify(payload),
           });
           const text = await response.text();
@@ -64,11 +84,20 @@
             showError(data.error || "Credenciales inválidas");
             return;
           }
-          if (window.parent) {
+          const nextInput = form.querySelector('input[name="next"]');
+          const nextValue = nextInput ? nextInput.value : "";
+          const nextTarget = nextValue ? decodeURIComponent(nextValue) : "";
+          const inIframe = window.parent && window.parent !== window;
+          if (mode === "token" && inIframe) {
             window.parent.postMessage(
               { type: "sso-login-token", ...data },
               "*"
             );
+            tryRedirectParent();
+          } else if (nextTarget && nextTarget.startsWith("/")) {
+            window.location.href = nextTarget;
+          } else {
+            window.location.href = "/";
           }
         } catch (err) {
           showError("No se pudo conectar al servidor");

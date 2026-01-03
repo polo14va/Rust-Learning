@@ -1,6 +1,6 @@
 use serde::{Serialize, Deserialize};
 use sqlx::{FromRow, PgPool};
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 use jsonwebtoken::Algorithm;
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
@@ -8,6 +8,7 @@ pub struct User {
     pub id: i32,
     pub username: String,
     pub email: String,
+    pub role: String,
     #[serde(skip)] // No queremos enviar el hash en el JSON de respuesta
     pub password_hash: String,
 }
@@ -41,6 +42,8 @@ pub struct Claims {
     pub scope: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub iat: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nonce: Option<String>,
 }
@@ -119,7 +122,10 @@ pub struct TokenResponse {
 pub struct UserInfoResponse {
     pub sub: String,
     pub preferred_username: String,
-    pub email: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -162,12 +168,11 @@ pub struct JwkKey {
 
 #[derive(Clone)]
 pub struct JwtKeys {
-    pub encoding: Arc<jsonwebtoken::EncodingKey>,
-    pub decoding: Arc<jsonwebtoken::DecodingKey>,
-    pub kid: String,
     pub alg: Algorithm,
-    pub n: String,
-    pub e: String,
+    pub active_kid: String,
+    pub encoding: Arc<jsonwebtoken::EncodingKey>,
+    pub decoding_keys: HashMap<String, Arc<jsonwebtoken::DecodingKey>>,
+    pub jwks: Vec<JwkKey>,
 }
 
 // Estado compartido de la aplicación

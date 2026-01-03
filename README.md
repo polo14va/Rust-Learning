@@ -154,7 +154,7 @@ Postgres (usuarios, clientes OAuth, auth codes, refresh tokens)
 
 ### 1) Login SSO (UI)
 1. Usuario abre `GET /login`.
-2. Envía credenciales a `POST /login/form`.
+2. Envía credenciales a `POST /login` (JSON).
 3. Se valida password y se crea una sesión SSO en Redis.
 4. Se devuelve cookie `sso_session`.
 
@@ -186,6 +186,12 @@ Postgres (usuarios, clientes OAuth, auth codes, refresh tokens)
 ### Sesiones y consentimiento
 - Sesiones SSO en Redis con TTL configurable.
 - Consentimiento almacenado por `usuario + cliente + scope` con expiración.
+- Step-up para scopes sensibles con ventana configurable (`SENSITIVE_SCOPES`, `SENSITIVE_SESSION_MAX_AGE_SECONDS`).
+
+### Scopes y roles
+- Scopes por ruta con mapa configurable (`ROUTE_SCOPE_MAP`).
+- Roles en token (`role`) con control por ruta (`ROUTE_ROLE_MAP`).
+- Defaults: `/dashboard` requiere `dashboard.read`, `/users` requiere rol `admin`.
 
 ### Rate limiting
 - Implementado en Redis con ventana de 60s.
@@ -207,6 +213,24 @@ Opcionales (con defaults):
 - `SESSION_TTL_MINUTES` (default `60`)
 - `REFRESH_TOKEN_TTL_DAYS` (default `7`)
 - `RATE_LIMIT_PER_SECOND` (default `10`)
+- `DEFAULT_USER_SCOPE` (default `openid profile email offline_access dashboard.read`)
+- `DASHBOARD_SCOPE` (default `dashboard.read`)
+- `RESOURCE_AUDIENCE` (default `first-party`)
+- `COOKIE_SECURE` (default `true`)
+- `COOKIE_SAMESITE` (default `Strict`)
+- `REQUIRE_PKCE` (default `true`)
+- `PUBLIC_CLIENTS` (default vacío)
+- `ROUTE_SCOPE_MAP` (default vacío)
+- `ROUTE_ROLE_MAP` (default vacío)
+- `CLIENT_SCOPE_MAP` (default vacío)
+- `CLIENT_ROLE_MAP` (default vacío)
+- `SENSITIVE_SCOPES` (default vacío)
+- `SENSITIVE_SESSION_MAX_AGE_SECONDS` (default `300`)
+- `INTROSPECT_SCOPE` (default `introspect`)
+- `REVOKE_SCOPE` (default `revoke`)
+- `INTROSPECT_ROLES` (default `service,admin`)
+- `REVOKE_ROLES` (default `service,admin`)
+- `ENABLE_REGISTRATION` (default `false`)
 
 ## 🗃 Modelo de datos (Postgres)
 - `users`: usuarios con `password_hash`.

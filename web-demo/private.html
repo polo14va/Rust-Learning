@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Auth Console (Privado)</title>
+  <title>SSO Private</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fira+Mono:wght@400;500&family=Space+Grotesk:wght@400;600;700&family=Source+Sans+3:wght@400;600&display=swap" rel="stylesheet" />
@@ -12,116 +12,49 @@
 </head>
 <body>
   <div class="bg-glow"></div>
-  <div class="wrap">
-    <header class="hero" data-reveal>
-      <div>
-        <p class="eyebrow">SSO / OAuth2 / OIDC</p>
-        <h1>Auth Console</h1>
-        <p class="lead">
-          Panel ligero para probar login, tokens, consent, endpoints protegidos
-          y la capa OAuth completa.
-        </p>
+  <main class="private-shell">
+    <section class="private-card" data-reveal>
+      <header class="private-header">
+        <div>
+          <p class="eyebrow">SSO / OAuth2 / OIDC</p>
+          <h1>Acceso privado</h1>
+          <p class="lead">Validamos tu token con el servidor y listamos permisos activos.</p>
+        </div>
+        <button id="btnLogout" class="btn ghost">Cerrar sesión</button>
+      </header>
+
+      <div class="status-bar">
+        <span id="accessStatus" class="status-pill">Verificando acceso...</span>
+        <span id="audienceInfo" class="status-pill ghost">audiencia: -</span>
+        <span id="expiresInfo" class="status-pill ghost">expira: -</span>
       </div>
-      <div class="config">
-        <label class="label">Base URL</label>
-        <input id="baseUrl" class="input" type="text" value="http://localhost:3000" />
-        <div class="row">
-          <button id="btnHealth" class="btn">GET /health</button>
-          <button id="btnOpenId" class="btn ghost">GET /.well-known/openid-configuration</button>
-        </div>
+      <p id="privateError" class="error hidden"></p>
+
+      <div class="private-grid">
+        <article class="card">
+          <h2>Identidad</h2>
+          <div class="info-list">
+            <div class="info-item"><span>Usuario</span><strong id="userName">-</strong></div>
+            <div class="info-item"><span>Email</span><strong id="userEmail">-</strong></div>
+            <div class="info-item"><span>Rol</span><strong id="userRole">-</strong></div>
+            <div class="info-item"><span>Cliente</span><strong id="clientId">-</strong></div>
+          </div>
+        </article>
+
+        <article class="card">
+          <h2>Permisos (scope)</h2>
+          <ul id="scopeList" class="scope-list"></ul>
+        </article>
+
+        <article class="card">
+          <h2>Estado</h2>
+          <div class="info-list">
+            <div class="info-item"><span>/userinfo</span><strong id="userinfoStatus">-</strong></div>
+            <div class="info-item"><span>/dashboard</span><strong id="dashboardStatus">-</strong></div>
+          </div>
+        </article>
       </div>
-    </header>
-
-    <section class="grid">
-      <article class="card" data-reveal>
-        <h2>Sesion SSO + Login JSON</h2>
-        <p class="muted">Obtiene tokens y crea cookie de sesion si usas login form.</p>
-        <label class="label">Usuario</label>
-        <input id="username" class="input" type="text" placeholder="admin" />
-        <label class="label">Password</label>
-        <input id="password" class="input" type="password" placeholder="test123" />
-        <div class="row">
-          <button id="btnRegister" class="btn ghost">POST /register</button>
-          <button id="btnLoginJson" class="btn">POST /login (JSON)</button>
-        </div>
-        <div class="row">
-          <button id="btnLogout" class="btn small ghost">POST /logout</button>
-        </div>
-      </article>
-
-      <article class="card" data-reveal>
-        <h2>Tokens</h2>
-        <p class="muted">Gestion local de tokens para pruebas rapidas.</p>
-        <label class="label">Access token</label>
-        <textarea id="accessToken" class="input code" rows="4" placeholder="access_token"></textarea>
-        <label class="label">Refresh token</label>
-        <textarea id="refreshToken" class="input code" rows="3" placeholder="refresh_token"></textarea>
-        <label class="label">ID token</label>
-        <textarea id="idToken" class="input code" rows="3" placeholder="id_token (opcional)"></textarea>
-        <div class="row">
-          <button id="btnRefresh" class="btn">POST /refresh</button>
-          <button id="btnClearTokens" class="btn ghost">Limpiar</button>
-        </div>
-      </article>
-
-      <article class="card" data-reveal>
-        <h2>OAuth Code Flow</h2>
-        <p class="muted">Usa PKCE y redireccion al callback local.</p>
-        <label class="label">Client ID</label>
-        <input id="clientId" class="input" type="text" value="demo-client" />
-        <label class="label">Client Secret</label>
-        <input id="clientSecret" class="input" type="text" value="demo-secret" />
-        <label class="label">Scope</label>
-        <input id="scope" class="input" type="text" value="openid profile email offline_access" />
-        <label class="label">Redirect URI</label>
-        <input id="redirectUri" class="input" type="text" />
-        <label class="label">Abrir en nueva pestaña</label>
-        <label class="switch">
-          <input id="openNewTab" type="checkbox" />
-          <span class="slider"></span>
-        </label>
-        <div class="row">
-          <button id="btnStartAuth" class="btn">GET /authorize</button>
-          <button id="btnToken" class="btn ghost">POST /token</button>
-        </div>
-      </article>
-
-      <article class="card" data-reveal>
-        <h2>Endpoints protegidos</h2>
-        <p class="muted">Usa el access token actual.</p>
-        <div class="row">
-          <button id="btnDashboard" class="btn">GET /dashboard</button>
-          <button id="btnUserinfo" class="btn ghost">GET /userinfo</button>
-        </div>
-        <div class="row">
-          <button id="btnIntrospect" class="btn ghost">POST /introspect</button>
-          <button id="btnRevoke" class="btn ghost">POST /revoke</button>
-        </div>
-      </article>
-
-      <article class="card" data-reveal>
-        <h2>Observabilidad</h2>
-        <p class="muted">Consultas de debug y metricas.</p>
-        <div class="row">
-          <button id="btnMetrics" class="btn">GET /metrics</button>
-          <button id="btnUsers" class="btn ghost">GET /users</button>
-        </div>
-        <div class="row">
-          <button id="btnJwks" class="btn ghost">GET /.well-known/jwks.json</button>
-          <button id="btnRoot" class="btn ghost">GET /</button>
-        </div>
-      </article>
-
-      <article class="card wide" data-reveal>
-        <h2>Consola</h2>
-        <p class="muted">Respuesta del servidor (JSON o texto).</p>
-        <pre id="console" class="console"></pre>
-      </article>
     </section>
-
-    <footer class="footer" data-reveal>
-      <p>Demo local. Ajusta tu redirect URI en la tabla oauth_clients si es necesario.</p>
-    </footer>
-  </div>
+  </main>
 </body>
 </html>

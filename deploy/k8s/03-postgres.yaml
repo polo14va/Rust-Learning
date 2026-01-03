@@ -103,5 +103,4 @@ spec:
   ports:
   - port: 5432
     targetPort: 5432
-    nodePort: 30432  # Puerto externo (30000-32767)
-  type: NodePort  # Cambiado de ClusterIP a NodePort para acceso externo
+  type: ClusterIP  # Exponer fuera solo si es estrictamente necesario

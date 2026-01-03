@@ -72,5 +72,4 @@ spec:
   ports:
   - port: 6379
     targetPort: 6379
-    nodePort: 30379  # Puerto externo
-  type: NodePort  # Expuesto para acceso externo
+  type: ClusterIP  # Exponer fuera solo si es estrictamente necesario

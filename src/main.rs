@@ -10,7 +10,7 @@ use crate::models::AppState;  // Importamos el struct AppState
 use tower_http::cors::CorsLayer;
 use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::services::ServeDir;
-use axum::http::{HeaderName, HeaderValue, Method};
+use axum::http::{header, HeaderName, HeaderValue, Method};
 
 mod models;
 mod error;
@@ -64,7 +64,7 @@ async fn main() {
         "first-party",
         "first-secret",
         "http://localhost:3000/callback",
-        "openid profile email offline_access",
+        "openid profile email offline_access dashboard.read",
         "authorization_code,refresh_token,client_credentials",
         "First Party Internal Client",
     )
@@ -90,10 +90,6 @@ async fn main() {
     };
 
     // 3. Router
-    let protected_routes = Router::new()
-        .route("/dashboard", get(handlers::get_dashboard))
-        .layer(axum::middleware::from_fn_with_state(shared_state.clone(), middleware::auth_middleware));
-
     let cors = CorsLayer::new()
         .allow_origin([
             HeaderValue::from_static("http://localhost:8000"),
@@ -107,14 +103,48 @@ async fn main() {
         .allow_credentials(true);
 
     let frame_policy = SetResponseHeaderLayer::if_not_present(
-        axum::http::header::CONTENT_SECURITY_POLICY,
-        HeaderValue::from_static(
-            "frame-ancestors 'self' http://localhost:8000 http://127.0.0.1:8000",
-        ),
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_str(&format!(
+            "frame-ancestors {}",
+            env::var("FRAME_ANCESTORS")
+                .unwrap_or_else(|_| "'self' http://localhost:8000 http://127.0.0.1:8000".to_string())
+        ))
+        .unwrap_or_else(|_| HeaderValue::from_static("frame-ancestors 'self'")),
+    );
+    let referrer_policy = SetResponseHeaderLayer::if_not_present(
+        HeaderName::from_static("referrer-policy"),
+        HeaderValue::from_str(
+            &env::var("REFERRER_POLICY")
+                .unwrap_or_else(|_| "strict-origin-when-cross-origin".to_string()),
+        )
+        .unwrap_or_else(|_| HeaderValue::from_static("no-referrer")),
+    );
+    let permissions_policy = SetResponseHeaderLayer::if_not_present(
+        HeaderName::from_static("permissions-policy"),
+        HeaderValue::from_str(
+            &env::var("PERMISSIONS_POLICY").unwrap_or_else(|_| {
+                "geolocation=(), microphone=(), camera=(), payment=(), interest-cohort=()".to_string()
+            }),
+        )
+        .unwrap_or_else(|_| HeaderValue::from_static("geolocation=()")),
+    );
+    let content_type_options = SetResponseHeaderLayer::if_not_present(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    let hsts_enabled = env::var("ENABLE_HSTS")
+        .map(|v| v == "true")
+        .unwrap_or(false);
+    let hsts_value = format!(
+        "max-age={}; includeSubDomains; preload",
+        env::var("HSTS_MAX_AGE").unwrap_or_else(|_| "63072000".to_string())
+    );
+    let hsts_layer = SetResponseHeaderLayer::if_not_present(
+        header::STRICT_TRANSPORT_SECURITY,
+        HeaderValue::from_str(&hsts_value).unwrap_or_else(|_| HeaderValue::from_static("max-age=63072000")),
     );
 
     let app = Router::new()
-        .merge(protected_routes)
         .nest_service(
             "/demo",
             ServeDir::new("web-demo").append_index_html_on_directories(true),
@@ -123,32 +153,41 @@ async fn main() {
         .route("/health", get(health::health_check))
         .route("/metrics", get(metrics_handler))  // Endpoint de métricas
         .route("/users", get(handlers::list_users))
+        .route("/dashboard", get(handlers::get_dashboard).options(oauth::options_ok))
         .route("/login", get(oauth::login_page).post(handlers::login).options(oauth::options_ok))
         .route("/login/", get(oauth::login_page).options(oauth::options_ok)) // soporte trailing slash
         .route("/register", post(handlers::register))
         .route("/refresh", post(handlers::refresh))
-        .layer(axum_middleware::from_fn(metrics_middleware::metrics_middleware))  // Métricas automáticas
         .route("/logout", post(handlers::logout))
+        .route("/logout/all", post(handlers::logout_all))
         // OAuth2 / OIDC
         .route("/authorize", get(oauth::authorize))
         .route("/token", post(oauth::token))
         .route("/introspect", post(oauth::introspect))
         .route("/revoke", post(oauth::revoke))
-        .route("/userinfo", get(oauth::userinfo))
+        .route("/userinfo", get(oauth::userinfo).options(oauth::options_ok))
         .route("/consent", get(oauth::consent_page).post(oauth::submit_consent).options(oauth::options_ok))
         .route("/consent/", get(oauth::consent_page).options(oauth::options_ok))
         .route("/.well-known/openid-configuration", get(oauth::openid_configuration))
         .route("/.well-known/jwks.json", get(oauth::jwks))
-        .layer(cors)
+        .layer(axum::middleware::from_fn_with_state(shared_state.clone(), middleware::auth_middleware))
+        .layer(axum_middleware::from_fn(metrics_middleware::metrics_middleware))  // Métricas automáticas
+        .layer(content_type_options)
+        .layer(permissions_policy)
+        .layer(referrer_policy)
         .layer(frame_policy)
+        .layer(cors)
         .with_state(shared_state);
+    let app = if hsts_enabled { app.layer(hsts_layer) } else { app };
 
     // 4. Server
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
     tracing::info!("Server listening on http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
+        .await
+        .unwrap();
 }
 
 async fn root() -> &'static str {

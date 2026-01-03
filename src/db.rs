@@ -4,14 +4,18 @@ use crate::{models::{User, DashboardStat, RecentActivity, SystemAlert, OAuthClie
 
 // --- Users ---
 pub async fn get_all_users(pool: &PgPool) -> Result<Vec<User>, AppError> {
-    let users = sqlx::query_as::<_, User>("SELECT id, username, email, password_hash FROM users")
+    let users = sqlx::query_as::<_, User>(
+        "SELECT id, username, email, role, password_hash FROM users",
+    )
         .fetch_all(pool)
         .await?;
     Ok(users)
 }
 
 pub async fn get_user_by_username(pool: &PgPool, username: &str) -> Result<Option<User>, AppError> {
-    let user = sqlx::query_as::<_, User>("SELECT id, username, email, password_hash FROM users WHERE username = $1")
+    let user = sqlx::query_as::<_, User>(
+        "SELECT id, username, email, role, password_hash FROM users WHERE username = $1",
+    )
         .bind(username)
         .fetch_optional(pool)
         .await?;
@@ -59,6 +63,16 @@ pub async fn get_oauth_client(pool: &PgPool, client_id: &str) -> Result<Option<O
     .await?;
 
     Ok(client)
+}
+
+pub async fn oauth_client_exists(pool: &PgPool, client_id: &str) -> Result<bool, AppError> {
+    let record = sqlx::query_scalar::<_, i32>(
+        "SELECT 1 FROM oauth_clients WHERE client_id = $1",
+    )
+    .bind(client_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(record.is_some())
 }
 
 pub async fn store_authorization_code(
@@ -143,6 +157,20 @@ pub async fn revoke_refresh_token_record(
         "UPDATE oauth_refresh_tokens SET revoked = TRUE WHERE refresh_token = $1",
     )
     .bind(refresh_token)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn revoke_all_refresh_tokens_for_user(
+    pool: &PgPool,
+    username: &str,
+) -> Result<(), AppError> {
+    sqlx::query(
+        "UPDATE oauth_refresh_tokens SET revoked = TRUE WHERE username = $1",
+    )
+    .bind(username)
     .execute(pool)
     .await?;
 

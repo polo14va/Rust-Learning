@@ -19,8 +19,13 @@ pub async fn get_dashboard_data(client: &redis::Client) -> Result<Option<Dashboa
         // CACHE HIT - Registrar métrica
         crate::metrics::record_cache_hit("redis");
         
-        let data: DashboardData = serde_json::from_str(&json_str).unwrap(); // Unwrap seguro si confiamos en lo que guardamos
-        return Ok(Some(data));
+        match serde_json::from_str::<DashboardData>(&json_str) {
+            Ok(data) => return Ok(Some(data)),
+            Err(e) => {
+                tracing::warn!("Invalid cache payload: {}", e);
+                let _: () = conn.del("dashboard_data").await.map_err(redis_error)?;
+            }
+        }
     }
 
     // CACHE MISS - Registrar métrica
